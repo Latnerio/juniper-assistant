@@ -104,6 +104,11 @@ export async function PATCH(req: Request) {
   if (typeof is_admin === "boolean") updates.is_admin = is_admin;
   if (typeof is_approved === "boolean") updates.is_approved = is_approved;
 
+  // When approving, also confirm the email in Supabase Auth
+  if (is_approved === true) {
+    await service.auth.admin.updateUserById(userId, { email_confirm: true });
+  }
+
   const { error } = await service
     .from("user_profiles")
     .update(updates)
