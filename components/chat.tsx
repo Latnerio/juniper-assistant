@@ -15,7 +15,7 @@ export function Chat() {
   const endRef = useRef<HTMLDivElement>(null);
   const { messages, append, isLoading } = useChat({
     api: "/api/chat",
-    streamProtocol: "data"
+    streamProtocol: "text"
   });
 
   useEffect(() => {

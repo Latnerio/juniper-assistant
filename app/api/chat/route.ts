@@ -79,20 +79,8 @@ export async function POST(request: Request) {
         // Increment hit count async (fire and forget)
         void supabase.from("response_cache").update({ hit_count: ((cached as any).hit_count ?? 0) + 1 }).eq("question_hash", hash).then(() => {});
 
-        // Return cached answer as a stream-compatible response
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode(`f:{"messageId":"cached-${hash.slice(0, 8)}"}\n`));
-            // Send full answer in one chunk
-            const escaped = JSON.stringify(cached.answer);
-            controller.enqueue(encoder.encode(`0:${escaped}\n`));
-            controller.enqueue(encoder.encode(`e:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0},"isContinued":false}\n`));
-            controller.enqueue(encoder.encode(`d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n`));
-            controller.close();
-          }
-        });
-        return new Response(stream, {
+        // Return cached answer as plain text stream
+        return new Response(cached.answer, {
           headers: { "Content-Type": "text/plain; charset=utf-8", "X-Cache": "HIT" }
         });
       }
@@ -119,14 +107,7 @@ export async function POST(request: Request) {
       }
     });
 
-    return stream.toDataStreamResponse({
-      sendReasoning: false,
-      sendSources: false,
-      getErrorMessage: (err) => {
-        const message = err instanceof Error ? err.message : "Unexpected error";
-        return `Chat generation error: ${message}`;
-      }
-    });
+    return stream.toTextStreamResponse();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected server error";
     return new Response(message, { status: 500 });
