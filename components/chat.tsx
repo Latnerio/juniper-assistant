@@ -93,6 +93,10 @@ export function Chat() {
       content: m.content
     }));
     setMessages(restored);
+    // Scroll to top after restoring
+    setTimeout(() => {
+      scrollerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    }, 50);
   }, [setMessages]);
 
   const handleDelete = useCallback((id: string) => {
