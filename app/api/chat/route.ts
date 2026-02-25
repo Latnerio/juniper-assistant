@@ -88,14 +88,31 @@ export async function POST(request: Request) {
     const keywordQuery = keywords.slice(0, 4).join(" & ");
 
     let keywordDocs: DocumentRow[] = [];
-    if (keywordQuery) {
+    if (keywords.length > 0) {
+      // Use ilike with the most specific multi-word phrases first, then individual keywords
+      const phrases = keywords.slice(0, 5);
+      const pattern = `%${phrases.join("%")}%`;
       const { data: kwData } = await supabase
         .from("documents")
         .select("id, content, metadata")
-        .textSearch("content", keywordQuery, { type: "websearch" })
+        .ilike("content", pattern)
         .limit(6);
-      if (kwData) {
+      if (kwData && kwData.length > 0) {
         keywordDocs = kwData.map((d: any) => ({ ...d, similarity: 0.5 }));
+      } else {
+        // Fallback: search for any 2 keywords together
+        for (let i = 0; i < Math.min(phrases.length, 3) && keywordDocs.length === 0; i++) {
+          for (let j = i + 1; j < Math.min(phrases.length, 4) && keywordDocs.length === 0; j++) {
+            const { data: kwData2 } = await supabase
+              .from("documents")
+              .select("id, content, metadata")
+              .ilike("content", `%${phrases[i]}%${phrases[j]}%`)
+              .limit(6);
+            if (kwData2 && kwData2.length > 0) {
+              keywordDocs = kwData2.map((d: any) => ({ ...d, similarity: 0.45 }));
+            }
+          }
+        }
       }
     }
 
