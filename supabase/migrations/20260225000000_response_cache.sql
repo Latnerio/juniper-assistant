@@ -8,4 +8,4 @@ create table if not exists response_cache (
   hit_count int not null default 0
 );
 
-create index idx_response_cache_hash on response_cache (question_hash);
+create index if not exists idx_response_cache_hash on response_cache (question_hash);

@@ -13,6 +13,7 @@
     "@ai-sdk/anthropic": "^3.0.47",
     "@ai-sdk/openai": "^3.0.33",
     "@ai-sdk/react": "^1.2.0",
+    "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.49.1",
     "@tailwindcss/typography": "^0.5.19",
     "ai": "^6.0.99",

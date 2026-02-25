@@ -2,47 +2,66 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { Send } from "lucide-react";
+import { LogOut, Send, Shield } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 import { Message } from "@/components/message";
 import { HistoryPanel, type HistoryEntry } from "@/components/history-panel";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-
-const STORAGE_KEY = "juniper-assistant-history";
-
-function loadHistory(): HistoryEntry[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(entries: HistoryEntry[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, 100)));
-  } catch { /* quota exceeded */ }
-}
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 export function Chat() {
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
   const [viewingEntry, setViewingEntry] = useState<HistoryEntry | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   const { messages, append, isLoading, setMessages } = useChat({
     api: "/api/chat",
     streamProtocol: "text"
   });
 
-  // Load history on mount
+  // Load user info
   useEffect(() => {
-    setHistory(loadHistory());
+    const supabase = getSupabaseBrowserClient();
+    supabase.auth.getUser().then(({ data: { user } }: { data: { user: any } }) => {
+      if (user) {
+        setUserEmail(user.email ?? null);
+        supabase
+          .from("user_profiles")
+          .select("is_admin")
+          .eq("id", user.id)
+          .single()
+          .then(({ data }: { data: any }) => {
+            if (data?.is_admin) setIsAdmin(true);
+          });
+      }
+    });
+  }, []);
+
+  // Load history from Supabase
+  useEffect(() => {
+    fetch("/api/conversations")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setHistory(
+            data.map((c: any) => ({
+              id: c.id,
+              title: c.title,
+              messages: c.messages,
+              createdAt: new Date(c.created_at).getTime(),
+            }))
+          );
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Auto-scroll
@@ -50,7 +69,7 @@ export function Chat() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, isLoading]);
 
-  // Save to history when assistant finishes responding
+  // Save to Supabase when assistant finishes responding
   useEffect(() => {
     if (isLoading || messages.length < 2) return;
     const lastMsg = messages[messages.length - 1];
@@ -62,20 +81,35 @@ export function Chat() {
     const title = firstUserMsg.content.slice(0, 80) + (firstUserMsg.content.length > 80 ? "..." : "");
     const serialized = messages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-    setHistory((prev) => {
-      const existing = prev.findIndex((e) => e.id === activeConvoId);
-      let updated: HistoryEntry[];
-      if (existing >= 0) {
-        updated = [...prev];
-        updated[existing] = { ...updated[existing], messages: serialized, title };
-      } else {
-        const id = crypto.randomUUID();
-        setActiveConvoId(id);
-        updated = [{ id, title, messages: serialized, createdAt: Date.now() }, ...prev];
-      }
-      saveHistory(updated);
-      return updated;
-    });
+    const body = { id: activeConvoId, title, messages: serialized };
+
+    fetch("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.id && !activeConvoId) {
+          setActiveConvoId(data.id);
+        }
+        // Refresh history
+        fetch("/api/conversations")
+          .then((r) => r.json())
+          .then((convos) => {
+            if (Array.isArray(convos)) {
+              setHistory(
+                convos.map((c: any) => ({
+                  id: c.id,
+                  title: c.title,
+                  messages: c.messages,
+                  createdAt: new Date(c.created_at).getTime(),
+                }))
+              );
+            }
+          });
+      })
+      .catch(() => {});
   }, [isLoading, messages, activeConvoId]);
 
   const handleNew = useCallback(() => {
@@ -93,23 +127,31 @@ export function Chat() {
       content: m.content
     }));
     setMessages(restored);
-    // Scroll to top after restoring
     setTimeout(() => {
       scrollerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     }, 50);
   }, [setMessages]);
 
   const handleDelete = useCallback((id: string) => {
-    setHistory((prev) => {
-      const updated = prev.filter((e) => e.id !== id);
-      saveHistory(updated);
-      return updated;
-    });
+    fetch("/api/conversations", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }).catch(() => {});
+
+    setHistory((prev) => prev.filter((e) => e.id !== id));
     if (activeConvoId === id) {
       setMessages([]);
       setActiveConvoId(null);
     }
   }, [activeConvoId, setMessages]);
+
+  const handleLogout = async () => {
+    const supabase = getSupabaseBrowserClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  };
 
   const canSend = input.trim().length > 0 && !isLoading;
 
@@ -126,8 +168,30 @@ export function Chat() {
     <div className="flex h-[92vh] min-h-[560px] w-full overflow-hidden rounded-2xl border border-red-100 bg-white/95 shadow-lg backdrop-blur">
       {/* Main chat area */}
       <div className="flex flex-1 flex-col">
-        <div className="border-b border-red-100 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-red-100 px-6 py-4">
           <h1 className="text-xl font-semibold text-primary">Juniper Knowledge Assistant</h1>
+          <div className="flex items-center gap-3">
+            {isAdmin && (
+              <button
+                onClick={() => router.push("/admin")}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                title="Admin Panel"
+              >
+                <Shield className="h-3.5 w-3.5" />
+                Admin
+              </button>
+            )}
+            {userEmail && (
+              <span className="text-xs text-gray-500">{userEmail}</span>
+            )}
+            <button
+              onClick={handleLogout}
+              className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              title="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-1 flex-col gap-4 overflow-hidden p-4 sm:p-6">
