@@ -98,16 +98,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // Use prompt caching via provider options
     const stream = streamText({
-      model: anthropic("claude-haiku-4-20250414", { cacheControl: true }),
+      model: anthropic("claude-haiku-4-20250414"),
       system: SYSTEM_PROMPT_PREFIX + KNOWLEDGE_BUNDLE + "\n\n" + languageInstruction,
       messages,
-      providerOptions: {
-        anthropic: {
-          cacheControl: { type: "ephemeral" }
-        }
-      },
       async onFinish({ text }) {
         // Cache the response for single-turn questions
         if (supabase && messages.length === 1 && text && text.length > 50) {
