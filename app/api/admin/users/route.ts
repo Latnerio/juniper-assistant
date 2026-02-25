@@ -31,7 +31,7 @@ export async function GET() {
   const service = getServiceClient();
   const { data: profiles } = await service
     .from("user_profiles")
-    .select("id, email, is_admin, created_at")
+    .select("id, email, is_admin, is_approved, created_at")
     .order("created_at", { ascending: true });
 
   if (!profiles) return NextResponse.json([]);
@@ -61,13 +61,19 @@ export async function POST(req: Request) {
   const { email, password } = await req.json();
   const service = getServiceClient();
 
-  const { error } = await service.auth.admin.createUser({
+  const { data, error } = await service.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
   });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Auto-approve admin-created users
+  if (data.user) {
+    await service.from("user_profiles").update({ is_approved: true }).eq("id", data.user.id);
+  }
+
   return NextResponse.json({ ok: true });
 }
 
@@ -91,12 +97,16 @@ export async function PATCH(req: Request) {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { userId, is_admin } = await req.json();
+  const { userId, is_admin, is_approved } = await req.json();
   const service = getServiceClient();
+
+  const updates: Record<string, any> = {};
+  if (typeof is_admin === "boolean") updates.is_admin = is_admin;
+  if (typeof is_approved === "boolean") updates.is_approved = is_approved;
 
   const { error } = await service
     .from("user_profiles")
-    .update({ is_admin })
+    .update(updates)
     .eq("id", userId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

@@ -43,14 +43,24 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Check approval and admin status
+  const { data: profile } = await supabase
+    .from("user_profiles")
+    .select("is_admin, is_approved")
+    .eq("id", user.id)
+    .single();
+
+  // Unapproved users can't access anything
+  if (!profile?.is_approved) {
+    // Sign them out and redirect to login
+    await supabase.auth.signOut();
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
   // Admin route protection
   if (pathname.startsWith("/admin")) {
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("is_admin")
-      .eq("id", user.id)
-      .single();
-
     if (!profile?.is_admin) {
       const url = request.nextUrl.clone();
       url.pathname = "/";
