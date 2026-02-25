@@ -36,7 +36,7 @@ export function Chat() {
   };
 
   return (
-    <Card className="flex h-[85vh] min-h-[560px] w-full max-w-4xl flex-col border-red-100 bg-white/95 shadow-lg backdrop-blur">
+    <Card className="flex h-[90vh] min-h-[560px] w-full flex-col border-red-100 bg-white/95 shadow-lg backdrop-blur">
       <CardHeader className="border-b border-red-100 pb-4">
         <CardTitle className="text-xl text-primary">Juniper Knowledge Assistant</CardTitle>
       </CardHeader>

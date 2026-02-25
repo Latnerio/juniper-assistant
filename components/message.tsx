@@ -1,4 +1,9 @@
-import { Fragment, type ReactNode } from "react";
+"use client";
+
+import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Check, Copy } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -7,66 +12,46 @@ type MessageProps = {
   content: string;
 };
 
-function renderInline(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
-    const boldMatch = part.match(/^\*\*([^*]+)\*\*$/);
-    if (boldMatch) {
-      return <strong key={`bold-${index}`}>{boldMatch[1]}</strong>;
-    }
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
 
-    const lines = part.split("\n");
-    return (
-      <Fragment key={`text-${index}`}>
-        {lines.map((line, lineIndex) => (
-          <Fragment key={`line-${lineIndex}`}>
-            {line}
-            {lineIndex < lines.length - 1 ? <br /> : null}
-          </Fragment>
-        ))}
-      </Fragment>
-    );
-  });
-}
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
-function renderMarkdown(content: string): ReactNode {
-  const blocks = content.split(/\n{2,}/).filter(Boolean);
-
-  return blocks.map((block, blockIndex) => {
-    const lines = block.split("\n").filter(Boolean);
-    const isBulletList = lines.every((line) => /^\s*[-*]\s+/.test(line));
-
-    if (isBulletList) {
-      return (
-        <ul key={`list-${blockIndex}`} className="list-disc space-y-1 pl-5">
-          {lines.map((line, itemIndex) => (
-            <li key={`item-${itemIndex}`}>{renderInline(line.replace(/^\s*[-*]\s+/, ""))}</li>
-          ))}
-        </ul>
-      );
-    }
-
-    return (
-      <p key={`paragraph-${blockIndex}`} className="leading-6">
-        {renderInline(block)}
-      </p>
-    );
-  });
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute right-2 top-2 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-gray-100 hover:text-foreground group-hover:opacity-100"
+      title="Copy to clipboard"
+    >
+      {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+    </button>
+  );
 }
 
 export function Message({ role, content }: MessageProps) {
   const isUser = role === "user";
 
+  if (isUser) {
+    return (
+      <div className="flex w-full justify-end">
+        <div className="max-w-[85%] rounded-2xl bg-primary px-4 py-3 text-sm text-primary-foreground shadow-sm sm:max-w-[75%]">
+          {content}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
-      <div
-        className={cn(
-          "max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm sm:max-w-[75%]",
-          isUser
-            ? "bg-primary text-primary-foreground"
-            : "border border-border bg-white text-foreground"
-        )}
-      >
-        <div className="space-y-3">{renderMarkdown(content)}</div>
+    <div className="group relative flex w-full justify-start">
+      <div className="w-full rounded-2xl border border-border bg-white px-5 py-4 text-sm shadow-sm">
+        <CopyButton text={content} />
+        <div className="prose prose-sm max-w-none prose-headings:mt-4 prose-headings:mb-2 prose-headings:text-foreground prose-h2:text-base prose-h2:font-semibold prose-h3:text-sm prose-h3:font-semibold prose-p:leading-relaxed prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-strong:text-foreground prose-table:text-xs prose-th:bg-gray-50 prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
       </div>
     </div>
   );
