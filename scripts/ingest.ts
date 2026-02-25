@@ -14,8 +14,9 @@ type ChunkRecord = {
   };
 };
 
-const CHUNK_SIZE_TOKENS = 500;
+const CHUNK_SIZE_TOKENS = 800;
 const CHUNK_OVERLAP_TOKENS = 50;
+const MAX_SECTION_TOKENS = 1500;
 const EMBEDDING_BATCH_SIZE = 32;
 
 type IngestOptions = {
@@ -77,6 +78,85 @@ function recursiveChunk(text: string, maxTokens: number, overlapTokens: number):
   return chunks.filter((chunk) => estimateTokens(chunk) > 10);
 }
 
+/**
+ * Split markdown by headings (## or ###), keeping each section as a complete chunk.
+ * If a section exceeds MAX_SECTION_TOKENS, fall back to recursive chunking for that section.
+ * Small adjacent sections are merged to avoid tiny chunks.
+ */
+function sectionAwareChunk(text: string): string[] {
+  const cleaned = text.replace(/\r/g, "").trim();
+  if (!cleaned) return [];
+
+  // Split on ## or ### headings, keeping the heading with its content
+  const sectionRegex = /^(#{2,3}\s+.+)$/gm;
+  const sections: { heading: string; body: string }[] = [];
+  let lastIndex = 0;
+  let lastHeading = "";
+  let match: RegExpExecArray | null;
+
+  // Collect all heading positions
+  const headings: { heading: string; index: number }[] = [];
+  while ((match = sectionRegex.exec(cleaned)) !== null) {
+    headings.push({ heading: match[1], index: match.index });
+  }
+
+  // Build sections from headings
+  if (headings.length === 0) {
+    // No headings, fall back to recursive chunking
+    return recursiveChunk(cleaned, CHUNK_SIZE_TOKENS, CHUNK_OVERLAP_TOKENS);
+  }
+
+  // Content before first heading
+  const preamble = cleaned.substring(0, headings[0].index).trim();
+  if (preamble && estimateTokens(preamble) > 10) {
+    sections.push({ heading: "", body: preamble });
+  }
+
+  for (let i = 0; i < headings.length; i++) {
+    const start = headings[i].index;
+    const end = i + 1 < headings.length ? headings[i + 1].index : cleaned.length;
+    const sectionText = cleaned.substring(start, end).trim();
+    sections.push({ heading: headings[i].heading, body: sectionText });
+  }
+
+  // Now produce chunks: keep sections intact, merge small ones, split large ones
+  const chunks: string[] = [];
+  let buffer = "";
+  let bufferTokens = 0;
+
+  for (const section of sections) {
+    const sectionTokens = estimateTokens(section.body);
+
+    // If section is too large, flush buffer then sub-chunk the section
+    if (sectionTokens > MAX_SECTION_TOKENS) {
+      if (buffer) {
+        chunks.push(buffer.trim());
+        buffer = "";
+        bufferTokens = 0;
+      }
+      const subChunks = recursiveChunk(section.body, CHUNK_SIZE_TOKENS, CHUNK_OVERLAP_TOKENS);
+      chunks.push(...subChunks);
+      continue;
+    }
+
+    // If adding this section would exceed target, flush buffer
+    if (bufferTokens + sectionTokens > CHUNK_SIZE_TOKENS && buffer) {
+      chunks.push(buffer.trim());
+      buffer = "";
+      bufferTokens = 0;
+    }
+
+    buffer += (buffer ? "\n\n" : "") + section.body;
+    bufferTokens += sectionTokens;
+  }
+
+  if (buffer.trim()) {
+    chunks.push(buffer.trim());
+  }
+
+  return chunks.filter((chunk) => estimateTokens(chunk) > 10);
+}
+
 function cleanTranscriptNoise(input: string): string {
   const lines = input.split("\n");
   const greetingPattern = /^(hello|hi|hey|ciao|buongiorno|buonasera|grazie|thanks)[\s,!.-]*$/i;
@@ -123,7 +203,7 @@ async function readKnowledgeFiles(baseDir: string): Promise<ChunkRecord[]> {
 
   for (const filePath of markdownFiles) {
     const raw = await fs.readFile(filePath, "utf8");
-    const chunks = recursiveChunk(raw, CHUNK_SIZE_TOKENS, CHUNK_OVERLAP_TOKENS);
+    const chunks = sectionAwareChunk(raw);
     chunks.forEach((content, chunkIndex) => {
       records.push({
         content,

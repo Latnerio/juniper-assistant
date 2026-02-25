@@ -118,14 +118,26 @@ export async function POST(request: Request) {
       }
     }
 
-    // Merge and deduplicate (vector results take priority)
-    const seenIds = new Set((vectorDocs ?? []).map((d: DocumentRow) => d.id));
-    const mergedDocs = [
-      ...(vectorDocs ?? []),
-      ...keywordDocs.filter((d: DocumentRow) => !seenIds.has(d.id))
-    ].slice(0, TOP_K);
+    // Merge: keyword results first (more precise), then vector results, deduplicated
+    // Boost markdown docs over transcripts
+    const allDocs = [...keywordDocs, ...(vectorDocs ?? [])];
+    const seenIds = new Set<number>();
+    const dedupedDocs: DocumentRow[] = [];
+    for (const doc of allDocs) {
+      if (!seenIds.has(doc.id)) {
+        seenIds.add(doc.id);
+        dedupedDocs.push(doc);
+      }
+    }
+    // Sort: markdown docs first, then by similarity
+    dedupedDocs.sort((a, b) => {
+      const aIsMd = (a.metadata as any)?.documentType === "markdown" ? 1 : 0;
+      const bIsMd = (b.metadata as any)?.documentType === "markdown" ? 1 : 0;
+      if (aIsMd !== bIsMd) return bIsMd - aIsMd;
+      return (b.similarity ?? 0) - (a.similarity ?? 0);
+    });
 
-    const docs = mergedDocs as DocumentRow[];
+    const docs = dedupedDocs.slice(0, TOP_K) as DocumentRow[];
     const contextText = buildContext(docs);
     const sources = buildSources(docs);
 
