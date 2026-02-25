@@ -4,15 +4,15 @@ import { streamText } from "ai";
 import { embedText } from "@/lib/embeddings";
 import { createSupabaseServerClient, type DocumentRow } from "@/lib/supabase";
 
-const TOP_K = 8;
-const THRESHOLD = 0.7;
+const TOP_K = 12;
+const THRESHOLD = 0.5;
 const MAX_MESSAGE_LENGTH = 10_000;
 
 const SYSTEM_PROMPT = `You are a Juniper Booking Engine expert assistant. You answer questions about the Juniper Booking Engine (JBE) system, its modules, configuration, booking flows, and operational procedures.
 
 IMPORTANT: Detect the language of the user's question and respond in the SAME language. If they ask in Italian, respond in Italian. If they ask in English, respond in English.
 
-Use ONLY the provided context to answer. If the context doesn't contain enough information to answer, say so honestly. Do not make up information.
+Use the provided context as your primary source. If the context contains partial information, provide what you can and clearly note what is not covered. If the context has no relevant information at all, say so honestly. Do not fabricate specific procedures, but you may provide general Juniper Booking Engine guidance based on common patterns visible in the context.
 
 When relevant, mention the source of your information (e.g., "According to the training on Predefined Packages..." or "Secondo la formazione sui Pacchetti Predefiniti...").
 
