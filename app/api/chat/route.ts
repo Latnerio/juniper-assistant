@@ -1,4 +1,4 @@
-import { anthropic } from "@ai-sdk/anthropic";
+import { openai } from "@ai-sdk/openai";
 import { streamText } from "ai";
 import { createClient } from "@supabase/supabase-js";
 
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     }
 
     const stream = streamText({
-      model: anthropic("claude-sonnet-4-20250514"),
+      model: openai("gpt-4.1-nano"),
       system: SYSTEM_PROMPT_PREFIX + KNOWLEDGE_BUNDLE + "\n\n" + languageInstruction,
       messages,
       async onFinish({ text }) {
