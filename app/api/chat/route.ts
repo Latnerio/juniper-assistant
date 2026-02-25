@@ -16,6 +16,7 @@ RULES:
 5. If the knowledge base genuinely does not cover a topic, say so briefly. Never recommend "contact support" as your primary answer.
 6. Your job is to BE the manual. Answer as a senior Juniper consultant would.
 7. Distinguish between similar concepts (e.g., special offers vs special markup, contracts vs rates).
+8. When screenshots are provided in the context, include them in your answer using markdown image syntax: ![description](url). Place screenshots near the relevant step or section they illustrate.
 
 KNOWLEDGE BASE:
 `;
@@ -86,9 +87,31 @@ export async function POST(request: Request) {
       }
     }
 
+    // Find relevant screenshots
+    let screenshotContext = "";
+    if (supabase) {
+      const words = latest.content.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+      const { data: screenshots } = await supabase
+        .from("screenshot_index")
+        .select("title, public_url, context, topics");
+      
+      if (screenshots && screenshots.length > 0) {
+        const matched = screenshots.filter((s: any) => 
+          s.topics?.some((topic: string) => 
+            words.some((w: string) => topic.includes(w) || w.includes(topic))
+          )
+        ).slice(0, 3);
+        
+        if (matched.length > 0) {
+          screenshotContext = "\n\nRELEVANT SCREENSHOTS (include in your answer where appropriate):\n" +
+            matched.map((s: any) => `- ${s.title}: ${s.public_url} (${s.context})`).join("\n");
+        }
+      }
+    }
+
     const stream = streamText({
       model: openai("gpt-4.1-nano"),
-      system: SYSTEM_PROMPT_PREFIX + KNOWLEDGE_BUNDLE + "\n\n" + languageInstruction,
+      system: SYSTEM_PROMPT_PREFIX + KNOWLEDGE_BUNDLE + screenshotContext + "\n\n" + languageInstruction,
       messages,
       async onFinish({ text }) {
         // Cache the response for single-turn questions
