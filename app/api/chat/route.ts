@@ -1,24 +1,23 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { streamText } from "ai";
 
-import { embedText } from "@/lib/embeddings";
-import { createSupabaseServerClient, type DocumentRow } from "@/lib/supabase";
+import { KNOWLEDGE_BUNDLE } from "@/lib/knowledge-bundle";
 
-const TOP_K = 12;
-const THRESHOLD = 0.25;
 const MAX_MESSAGE_LENGTH = 10_000;
 
-const SYSTEM_PROMPT = `You are a Juniper Booking Engine (JBE) expert. You have deep knowledge of the system from training materials, API documentation, and operational guides.
+const SYSTEM_PROMPT = `You are a Juniper Booking Engine (JBE) expert. You have complete knowledge of the system from training materials, API documentation, and operational guides.
 
 RULES:
 1. Detect the user's language and respond in the SAME language (Italian or English).
-2. Answer confidently using the provided context. Synthesize information from multiple chunks to build complete answers.
-3. When the context contains relevant information, even partially, USE it to construct a helpful, actionable answer. Do NOT say "I don't have specific information" if the context contains related content.
-4. Structure answers with clear steps, bullet points, and practical guidance.
-5. If truly nothing relevant is in the context, briefly say so and suggest where in JBE to look.
-6. Never recommend "contact Juniper support" or "check the manual" as your primary answer. Your job is to BE the manual.
-7. Combine knowledge from different context chunks to give comprehensive answers. If one chunk mentions offers and another mentions contract configuration, synthesize both.
-8. When citing sources, do it inline naturally, not as a disclaimer.`;
+2. Answer confidently and directly. You have the full knowledge base available.
+3. Structure answers with clear steps, bullet points, and practical guidance.
+4. When a question maps to a specific module or workflow, provide the step-by-step procedure.
+5. If the knowledge base genuinely does not cover a topic, say so briefly. Never recommend "contact support" as your primary answer.
+6. Your job is to BE the manual. Answer as a senior Juniper consultant would.
+7. Distinguish between similar concepts (e.g., special offers vs special markup, contracts vs rates).
+
+KNOWLEDGE BASE:
+${KNOWLEDGE_BUNDLE}`;
 
 function detectLanguage(input: string): "it" | "en" {
   const normalized = input.toLowerCase();
@@ -29,28 +28,6 @@ function detectLanguage(input: string): "it" | "en" {
   ];
 
   return italianSignals.some((pattern) => pattern.test(normalized)) ? "it" : "en";
-}
-
-function buildContext(docs: DocumentRow[]) {
-  return docs
-    .map((doc, index) => {
-      const source =
-        typeof doc.metadata?.source === "string"
-          ? doc.metadata.source
-          : `unknown-source-${index + 1}`;
-      return `[Source ${index + 1}: ${source}]\n${doc.content}`;
-    })
-    .join("\n\n");
-}
-
-function buildSources(docs: DocumentRow[]) {
-  return docs.map((doc, index) => ({
-    source:
-      typeof doc.metadata?.source === "string"
-        ? doc.metadata.source
-        : `unknown-source-${index + 1}`,
-    similarity: doc.similarity
-  }));
 }
 
 export async function POST(request: Request) {
@@ -70,97 +47,11 @@ export async function POST(request: Request) {
     }
 
     const language = detectLanguage(latest.content);
-    const queryEmbedding = await embedText(latest.content);
-    const supabase = createSupabaseServerClient();
-
-    // Vector search
-    const { data: vectorDocs, error: vecError } = await supabase.rpc("match_documents", {
-      query_embedding: queryEmbedding,
-      match_threshold: THRESHOLD,
-      match_count: TOP_K
-    });
-
-    if (vecError) {
-      throw vecError;
-    }
-
-    // Keyword fallback: extract significant words and search
-    const stopWords = new Set(["how", "do", "i", "a", "an", "the", "in", "to", "of", "is", "it", "and", "or", "for", "on", "at", "by", "what", "where", "when", "can", "with"]);
-    const keywords = latest.content.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2 && !stopWords.has(w));
-    const keywordQuery = keywords.slice(0, 4).join(" & ");
-
-    let keywordDocs: DocumentRow[] = [];
-    if (keywords.length > 0) {
-      // Use ilike with the most specific multi-word phrases first, then individual keywords
-      const phrases = keywords.slice(0, 5);
-      const pattern = `%${phrases.join("%")}%`;
-      const { data: kwData } = await supabase
-        .from("documents")
-        .select("id, content, metadata")
-        .ilike("content", pattern)
-        .limit(6);
-      if (kwData && kwData.length > 0) {
-        keywordDocs = kwData.map((d: any) => ({ ...d, similarity: 0.5 }));
-      } else {
-        // Fallback: search for any 2 keywords together
-        for (let i = 0; i < Math.min(phrases.length, 3) && keywordDocs.length === 0; i++) {
-          for (let j = i + 1; j < Math.min(phrases.length, 4) && keywordDocs.length === 0; j++) {
-            const { data: kwData2 } = await supabase
-              .from("documents")
-              .select("id, content, metadata")
-              .ilike("content", `%${phrases[i]}%${phrases[j]}%`)
-              .limit(6);
-            if (kwData2 && kwData2.length > 0) {
-              keywordDocs = kwData2.map((d: any) => ({ ...d, similarity: 0.45 }));
-            }
-          }
-        }
-      }
-    }
-
-    // Merge: keyword results first (more precise), then vector results, deduplicated
-    // Boost markdown docs over transcripts
-    const allDocs = [...keywordDocs, ...(vectorDocs ?? [])];
-    const seenIds = new Set<number>();
-    const dedupedDocs: DocumentRow[] = [];
-    for (const doc of allDocs) {
-      if (!seenIds.has(doc.id)) {
-        seenIds.add(doc.id);
-        dedupedDocs.push(doc);
-      }
-    }
-    // Sort: markdown docs first, then by similarity
-    dedupedDocs.sort((a, b) => {
-      const aIsMd = (a.metadata as any)?.documentType === "markdown" ? 1 : 0;
-      const bIsMd = (b.metadata as any)?.documentType === "markdown" ? 1 : 0;
-      if (aIsMd !== bIsMd) return bIsMd - aIsMd;
-      return (b.similarity ?? 0) - (a.similarity ?? 0);
-    });
-
-    const docs = dedupedDocs.slice(0, TOP_K) as DocumentRow[];
-    const contextText = buildContext(docs);
-    const sources = buildSources(docs);
-
     const languageInstruction = language === "it" ? "Rispondi in italiano." : "Respond in English.";
-
-    const citationInstruction =
-      language === "it"
-        ? `Quando usi il contesto, cita esplicitamente la fonte tra parentesi alla fine della frase (esempio: [Source 2]). Fonti disponibili: ${sources
-            .map((item, index) => `[Source ${index + 1}: ${item.source}]`)
-            .join(", ")}`
-        : `When using context, explicitly cite the source in brackets at the end of the sentence (example: [Source 2]). Available sources: ${sources
-            .map((item, index) => `[Source ${index + 1}: ${item.source}]`)
-            .join(", ")}`;
-
-    const contextPrompt = docs.length
-      ? `Retrieved context:\n${contextText}`
-      : "No relevant context was retrieved.";
-
-    const fullSystemPrompt = `${SYSTEM_PROMPT}\n\n${languageInstruction}\n\n${citationInstruction}\n\n${contextPrompt}`;
 
     const stream = streamText({
       model: anthropic("claude-sonnet-4-20250514"),
-      system: fullSystemPrompt,
+      system: `${SYSTEM_PROMPT}\n\n${languageInstruction}`,
       messages
     });
 
