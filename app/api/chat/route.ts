@@ -5,7 +5,7 @@ import { embedText } from "@/lib/embeddings";
 import { createSupabaseServerClient, type DocumentRow } from "@/lib/supabase";
 
 const TOP_K = 12;
-const THRESHOLD = 0.5;
+const THRESHOLD = 0.25;
 const MAX_MESSAGE_LENGTH = 10_000;
 
 const SYSTEM_PROMPT = `You are a Juniper Booking Engine expert assistant. You answer questions about the Juniper Booking Engine (JBE) system, its modules, configuration, booking flows, and operational procedures.
