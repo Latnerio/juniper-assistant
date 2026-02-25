@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     }
 
     const stream = streamText({
-      model: anthropic("claude-3-5-haiku-latest"),
+      model: anthropic("claude-sonnet-4-20250514"),
       system: SYSTEM_PROMPT_PREFIX + KNOWLEDGE_BUNDLE + "\n\n" + languageInstruction,
       messages,
       async onFinish({ text }) {
