@@ -20,6 +20,7 @@ export function Chat() {
   const [isAdmin, setIsAdmin] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const restoringRef = useRef(false);
   const router = useRouter();
 
   const { messages, append, isLoading, setMessages } = useChat({
@@ -71,6 +72,7 @@ export function Chat() {
 
   // Save to Supabase when assistant finishes responding
   useEffect(() => {
+    if (restoringRef.current) { restoringRef.current = false; return; }
     if (isLoading || messages.length < 2) return;
     const lastMsg = messages[messages.length - 1];
     if (lastMsg.role !== "assistant") return;
@@ -117,6 +119,7 @@ export function Chat() {
   }, [setMessages]);
 
   const handleSelect = useCallback((entry: HistoryEntry) => {
+    restoringRef.current = true;
     setViewingEntry(null);
     setActiveConvoId(entry.id);
     const restored = entry.messages.map((m, i) => ({
