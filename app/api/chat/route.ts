@@ -50,7 +50,7 @@ export async function POST(request: Request) {
     const languageInstruction = language === "it" ? "Rispondi in italiano." : "Respond in English.";
 
     const stream = streamText({
-      model: anthropic("claude-sonnet-4-20250514"),
+      model: anthropic("claude-haiku-4-20250414"),
       system: `${SYSTEM_PROMPT}\n\n${languageInstruction}`,
       messages
     });
