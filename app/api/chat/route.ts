@@ -71,17 +71,42 @@ export async function POST(request: Request) {
     const queryEmbedding = await embedText(latest.content);
     const supabase = createSupabaseServerClient();
 
-    const { data: matchedDocs, error } = await supabase.rpc("match_documents", {
+    // Vector search
+    const { data: vectorDocs, error: vecError } = await supabase.rpc("match_documents", {
       query_embedding: queryEmbedding,
       match_threshold: THRESHOLD,
       match_count: TOP_K
     });
 
-    if (error) {
-      throw error;
+    if (vecError) {
+      throw vecError;
     }
 
-    const docs = (matchedDocs ?? []) as DocumentRow[];
+    // Keyword fallback: extract significant words and search
+    const stopWords = new Set(["how", "do", "i", "a", "an", "the", "in", "to", "of", "is", "it", "and", "or", "for", "on", "at", "by", "what", "where", "when", "can", "with"]);
+    const keywords = latest.content.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2 && !stopWords.has(w));
+    const keywordQuery = keywords.slice(0, 4).join(" & ");
+
+    let keywordDocs: DocumentRow[] = [];
+    if (keywordQuery) {
+      const { data: kwData } = await supabase
+        .from("documents")
+        .select("id, content, metadata")
+        .textSearch("content", keywordQuery, { type: "websearch" })
+        .limit(6);
+      if (kwData) {
+        keywordDocs = kwData.map((d: any) => ({ ...d, similarity: 0.5 }));
+      }
+    }
+
+    // Merge and deduplicate (vector results take priority)
+    const seenIds = new Set((vectorDocs ?? []).map((d: DocumentRow) => d.id));
+    const mergedDocs = [
+      ...(vectorDocs ?? []),
+      ...keywordDocs.filter((d: DocumentRow) => !seenIds.has(d.id))
+    ].slice(0, TOP_K);
+
+    const docs = mergedDocs as DocumentRow[];
     const contextText = buildContext(docs);
     const sources = buildSources(docs);
 
