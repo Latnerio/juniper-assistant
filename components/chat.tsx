@@ -81,7 +81,8 @@ export function Chat() {
     const title = firstUserMsg.content.slice(0, 80) + (firstUserMsg.content.length > 80 ? "..." : "");
     const serialized = messages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-    const body = { id: activeConvoId, title, messages: serialized };
+    // Each Q&A pair is saved as a separate entry
+    const body = { id: null, title, messages: serialized.slice(-2) };
 
     fetch("/api/conversations", {
       method: "POST",
@@ -90,9 +91,6 @@ export function Chat() {
     })
       .then((r) => r.json())
       .then((data) => {
-        if (data.id && !activeConvoId) {
-          setActiveConvoId(data.id);
-        }
         // Refresh history
         fetch("/api/conversations")
           .then((r) => r.json())
