@@ -23,6 +23,7 @@ const CORE_FILES = [
   "elearning/EDGE_CASES.md",
   "elearning/MODULE_SUMMARIES.md",
   "elearning/GLOSSARY.md",
+  "elearning/SCREENSHOT_REFERENCE.md",
 ];
 
 async function bundle() {
